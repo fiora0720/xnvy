@@ -1,4 +1,4 @@
-    <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
@@ -7,8 +7,9 @@
     <style>
         body { font-family: 'Arial', sans-serif; text-align: center; margin-top: 50px; }
         input, button { padding: 10px; margin: 10px; font-size: 18px; }
-        .vote-btn { width: 100px; height: 50px; font-weight: bold; cursor: pointer; }
+        .vote-btn { width: 100px; height: 50px; font-weight: bold; cursor: pointer; border: none; border-radius: 5px; }
         #vote-section { display: none; }
+        .exit-btn { background-color: #ff4d4d; color: white; border: none; border-radius: 5px; margin-top: 30px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -19,7 +20,7 @@
     <div id="login-section">
         <input type="text" id="vote-id" placeholder="투표고유번호 입력"><br>
         <input type="text" id="entry-code" placeholder="입장코드 입력"><br>
-        <input type="text" id="nickname" placeholder="이름(닉네임) 입력 (예: 이호건)"><br>
+        <input type="text" id="nickname" placeholder="이름(닉네임) 입력"><br>
         <button onclick="joinVote()">입장하기</button>
     </div>
 
@@ -31,7 +32,11 @@
         <button class="vote-btn" style="background-color: lightcoral;" onclick="castVote('반대')">반대</button>
         <button class="vote-btn" style="background-color: lightgray;" onclick="castVote('기권')">기권</button>
         <button class="vote-btn" style="background-color: black; color: white;" onclick="castVote('결석')">결석</button>
-        <p id="status-msg"></p>
+        <br>
+        <p id="status-msg" style="font-weight: bold; color: blue;"></p>
+        
+        <!-- 나가기 버튼 -->
+        <button class="exit-btn" onclick="exitVote()">나가기 (처음으로)</button>
     </div>
 
     <script>
@@ -39,6 +44,7 @@
         const FIREBASE_URL = "https://xnvy-cfc5f-default-rtdb.firebaseio.com/";
         let currentVoteId = "";
         let currentName = "";
+        let hasVoted = false; // 투표 여부를 확인하는 변수
 
         async function joinVote() {
             const vid = document.getElementById('vote-id').value;
@@ -47,38 +53,63 @@
 
             if(!vid || !code || !name) return alert("모든 칸을 입력해주세요!");
 
-            // 메인 컴퓨터에서 만든 투표방 정보 가져오기
-            const res = await fetch(`${FIREBASE_URL}/votes/${vid}.json`);
-            const data = await res.json();
+            try {
+                const res = await fetch(`${FIREBASE_URL}/votes/${vid}.json`);
+                const data = await res.json();
 
-            if (!data) return alert("존재하지 않는 투표번호입니다.");
-            if (data.code !== code) return alert("입장코드가 틀렸습니다.");
+                if (!data) return alert("존재하지 않는 투표번호입니다.");
+                if (data.code !== code) return alert("입장코드가 틀렸습니다.");
 
-            currentVoteId = vid;
-            currentName = name;
+                currentVoteId = vid;
+                currentName = name;
+                hasVoted = false; // 입장 시 투표 상태 초기화
 
-            document.getElementById('login-section').style.display = 'none';
-            document.getElementById('vote-section').style.display = 'block';
-            document.getElementById('vote-title').innerText = data.title;
+                document.getElementById('login-section').style.display = 'none';
+                document.getElementById('vote-section').style.display = 'block';
+                document.getElementById('vote-title').innerText = data.title;
+                document.getElementById('status-msg').innerText = "";
+            } catch (error) {
+                alert("데이터를 불러오는데 실패했습니다. 주소를 확인해주세요.");
+            }
         }
 
         async function castVote(voteType) {
-            // 현재 투표 상태 확인 (메인 컴퓨터에서 '투표시작'을 눌렀는지)
-            const res = await fetch(`${FIREBASE_URL}/votes/${currentVoteId}/status.json`);
-            const status = await res.json();
-
-            if (status !== "active") {
-                document.getElementById('status-msg').innerText = "아직 투표가 시작되지 않았거나 종료되었습니다.";
+            // 1. 이미 투표했는지 먼저 검사
+            if (hasVoted) {
+                alert("이미 투표를 완료했습니다! 한 번만 투표할 수 있습니다.");
                 return;
             }
 
-            // 파이어베이스에 투표 결과 보내기
-            await fetch(`${FIREBASE_URL}/votes/${currentVoteId}/participants/${currentName}.json`, {
-                method: 'PUT',
-                body: JSON.stringify(voteType)
-            });
+            try {
+                // 2. 메인 컴퓨터에서 투표를 시작했는지 검사
+                const res = await fetch(`${FIREBASE_URL}/votes/${currentVoteId}/status.json`);
+                const status = await res.json();
 
-            document.getElementById('status-msg').innerText = `[${voteType}] 투표가 완료되었습니다!`;
+                if (status !== "active") {
+                    document.getElementById('status-msg').innerText = "아직 투표가 시작되지 않았거나 종료되었습니다.";
+                    document.getElementById('status-msg').style.color = "red";
+                    return;
+                }
+
+                // 3. 통과했다면 파이어베이스에 데이터 전송
+                await fetch(`${FIREBASE_URL}/votes/${currentVoteId}/participants/${currentName}.json`, {
+                    method: 'PUT',
+                    body: JSON.stringify(voteType)
+                });
+
+                hasVoted = true; // 투표 완료 상태로 잠금
+                document.getElementById('status-msg').innerText = `[${voteType}] 투표가 완료되었습니다!`;
+                document.getElementById('status-msg').style.color = "blue";
+                
+            } catch (error) {
+                alert("투표 전송 중 오류가 발생했습니다.");
+            }
+        }
+
+        function exitVote() {
+            if (confirm("정말 투표방에서 나가시겠습니까?")) {
+                location.reload(); // 새로고침을 통해 모든 변수와 화면을 초기화
+            }
         }
     </script>
 </body>
